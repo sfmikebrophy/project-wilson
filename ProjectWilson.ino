@@ -1,6 +1,3 @@
-
-
-
 /***********************************************************
  * Project Wilson: An Arduino Drift Buoy
  * Designed in San Francisco, California, USA
@@ -23,7 +20,6 @@
  * 
  */
 
- 
 /**********************************/
 // IMPORT ALL NECESSARY LIBRARIES
 /**********************************/
@@ -52,34 +48,43 @@
 // DEFINE PIN ASSIGNMENTS
 /*****************************/
 // HUMIDITY & TEMP SENSOR ports (Model: SHT10)
-#define dataPin 30
-#define sckPin 31 //serial clock
+//#define dataPin 30
+//#define sckPin 31 //serial clock
 
-// Used for software SPI
-#define LIS3DH_CLK 13
-#define LIS3DH_MISO 12
-#define LIS3DH_MOSI 11
-// Used for hardware & software SPI
-#define LIS3DH_CS 10
+#define TEMP1_WIRE_BUS 9 //used for dedicated temp sensor 1
+#define TEMP2_WIRE_BUS 10 //used for dedicated temp sensor 2
+#define IridiumSerial Serial3
+#define DIAGNOSTICS true // Change this to see diagnostics
 
-#define ONE_WIRE_BUS 6
+SoftwareSerial gpsSS(4,3); //used for GPS
+//SoftwareSerial nss(10, 9); //used for SatModem
+//IridiumSBD isbd(nss, 8); //used for SatModem
 
-// Humid accuracy +/- 5%
-// Steady accuracy between 10-80
-// example at 10/90 +/- 6%, 0/100 +/- 7.5%
+/*****************************/
+// INSTANTIATE OBJECTS
+/*****************************/
 
-// Temp accuracy +/- .5 degrees celsius
-// Temp error increases more as we get farther from 25 cels.
-// example: @ 0/50 degrees, +/- 1.2 degrees
+// Instantiate the HUMIDITY & TEMP SENSOR object
+//SHT1x th_sensor(dataPin, sckPin);
+
+// Instantiate the SLEEP object
+Sleep sleep;
+RtcDS1307<TwoWire> Rtc(Wire);
+
+//Callibrated Clock Cycle 10 minute timer
+unsigned long sleepTime = 603500;
+
+OneWire oneWireTemp1(TEMP1_WIRE_BUS);
+OneWire oneWireTemp2(TEMP2_WIRE_BUS);
+DallasTemperature tempExtAir(&oneWireTemp1);
+DallasTemperature tempWater(&oneWireTemp2);
+TinyGPSPlus gps;
+Adafruit_MPL115A2 barometer; //barometric sensor
+IridiumSBD modem(IridiumSerial); //SatModem
 
 /*****************************/
 // ALLOCATE MEMORY
 /*****************************/
-TinyGPSPlus gps;
-SoftwareSerial gpsss(51, 50);
-
-boolean if_run_GPS = false;
-
 // EEPROM Address Pool
 const int eelat = 0;
 const int eelng = 4;
@@ -90,42 +95,6 @@ const int eeyear = 12;
 
 const int eehour = 14;
 const int eeminute = 16;
-
-float plat = 0.000000f;
-float plng = 0.000000f;
-int pmonth = 0;
-int pday = 0;
-int pyear = 0;
-int phour = 0;
-int pminute = 0;
-
-int tempMonth, tempDay, tempYear, tempHour, tempMin;
-int tempLat, tempLon;
-
-
-
-/*****************************/
-// INSTANTIATE OBJECTS
-/*****************************/
-
-// Instantiate the HUMIDITY & TEMP SENSOR object
-SHT1x th_sensor(dataPin, sckPin);
-
-// Instantiate the SLEEP object
-Sleep sleep;
-RtcDS1307<TwoWire> Rtc(Wire);
-
-//Callibrated Clock Cycle 10 minute timer
-unsigned long sleepTime = 603500;
-
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
-
-//Define Iridium Interface
-SoftwareSerial nss(10, 9);
-IridiumSBD isbd(nss, 8);
-
-SoftwareSerial ss(4,3);
 
 /*****************************/
 // DEFINE VARS
@@ -142,12 +111,31 @@ int rtc_hour;
 int rtc_minute;
 int rtc_second;
 
+float plat = 0.000000f;
+float plng = 0.000000f;
+int pmonth = 0;
+int pday = 0;
+int pyear = 0;
+int phour = 0;
+int pminute = 0;
+
+int tempMonth, tempDay, tempYear, tempHour, tempMin;
+int tempLat, tempLon;
+boolean if_run_GPS = false;
+int signalQuality = -1;
+int err;
+
 
 void setup()
 {
-  Serial.begin(115200);
-  ss.begin(9600);
-  Rtc.Begin();
+  Serial.begin(115200); //initiate serial comm with PC
+  gpsSS.begin(9600); //initiate serial comm with GPS
+  tempExtAir.begin();
+  tempWater.begin();
+  //initiate humidity sensor comm here
+  Rtc.Begin(); //initiate serial comm with real-time clock
+  barometer.begin();
+  IridiumSerial.begin(19200); //initiate serial comm with SatModem
   Serial.println("Starting up");
 }
 
@@ -157,33 +145,34 @@ void loop()
   /* Sleep Clock Routine
   /*****************************/
   
-  RtcDateTime now = Rtc.GetDateTime();
+ /* RtcDateTime now = Rtc.GetDateTime();
   printDateTime(now);
   Serial.println();
   delay(50);
   sleep.pwrDownMode(); //set sleep mode
   sleep.sleepDelay(sleepTime); //sleep for: sleepTime
-  wakeup();
+  wakeup();*/
 }
 
+/*
 void wakeup()
 {
   /*****************************/
   /* 0 Hour Routine Check
   /*****************************/
   
-  if(/*rtc_hour == 0 && */rtc_minute >= 0 && rtc_minute <= 30 && if_0hr_routine == false)
-  {
-    hr0_routine();
-    if_0hr_routine = true;
-    if_12hr_routine = false;
-  }
+  //if(rtc_hour == 0 && rtc_minute >= 0 && rtc_minute <= 30 && if_0hr_routine == false)
+  //{
+  //  hr0_routine();
+  //  if_0hr_routine = true;
+  //  if_12hr_routine = false;
+  //}
 
   /*****************************/
   /* 12 Hour Routine Check
   /*****************************/
-
-  if(/*rtc_hour == 12 && */rtc_minute > 30 && rtc_minute < 0 && if_12hr_routine == false)
+/*
+  if(rtc_hour == 12 && rtc_minute > 30 && rtc_minute < 0 && if_12hr_routine == false)
   {
     hr12_routine();
     if_12hr_routine = true;
@@ -262,7 +251,7 @@ void FetchHumid()
   float humid;
   
   // Read values from the sensor
-  humid = th_sensor.readHumidity();
+//  humid = th_sensor.readHumidity();
   // Since the humidity reading requires the temperature we simply
   // retrieve the reading capture from the readHumidity() call. See the lib.
   //temp_c = th_sensor.retrieveTemperatureC();
@@ -281,8 +270,8 @@ void GPSparse()
   /*****************************/
 
   // Displays GPS Data every time a new sentence is correctly encoded
-  while (ss.available() > 0 && if_run_GPS == false)
-    if (gps.encode(ss.read()))
+  while (gpsSS.available() > 0 && if_run_GPS == false)
+    if (gps.encode(gpsSS.read()))
     {
       if (gps.date.year() == 2000)
       {
@@ -357,3 +346,12 @@ void FetchGPSData()
   Serial.println();
   Serial.println();
 }
+
+
+// Humid accuracy +/- 5%
+// Steady accuracy between 10-80
+// example at 10/90 +/- 6%, 0/100 +/- 7.5%
+
+// Temp accuracy +/- .5 degrees celsius
+// Temp error increases more as we get farther from 25 cels.
+// example: @ 0/50 degrees, +/- 1.2 degrees
