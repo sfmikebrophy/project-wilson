@@ -56,7 +56,7 @@
 #define IridiumSerial Serial3
 #define DIAGNOSTICS true // Change this to see diagnostics
 
-SoftwareSerial gpsSS(4,3); //used for GPS
+SoftwareSerial gpsSS(51, 50); //used for GPS
 //SoftwareSerial nss(10, 9); //used for SatModem
 //IridiumSBD isbd(nss, 8); //used for SatModem
 
@@ -120,7 +120,8 @@ int phour = 0;
 int pminute = 0;
 
 int tempMonth, tempDay, tempYear, tempHour, tempMin;
-int tempLat, tempLon;
+float tempLat = 0.000000f;
+float tempLon = 0.000000f;
 boolean if_run_GPS = false;
 int signalQuality = -1;
 int err;
@@ -136,7 +137,11 @@ void setup()
   Rtc.Begin(); //initiate serial comm with real-time clock
   barometer.begin();
   IridiumSerial.begin(19200); //initiate serial comm with SatModem
-  Serial.println("Starting up");
+
+  gpsAOS();
+  syncRTCTimeToGPS();
+  printOutEEPROM();
+  
 }
 
 void loop()
@@ -152,6 +157,21 @@ void loop()
   sleep.pwrDownMode(); //set sleep mode
   sleep.sleepDelay(sleepTime); //sleep for: sleepTime
   wakeup();*/
+}
+
+
+void syncRTCTimeToGPS(){
+  // Fetch GPS time from EEPROM
+  EEPROM.get(eemonth, pmonth);
+  EEPROM.get(eeday, pday);
+  EEPROM.get(eeyear, pyear);
+  EEPROM.get(eehour, phour);
+  EEPROM.get(eeminute, pminute);
+  int pseconds = 0;
+
+  RtcDateTime seedTime = RtcDateTime(pyear, pmonth, pday, phour, pminute, pseconds); //set this to GPS fetched time
+  Rtc.SetDateTime(seedTime);
+  
 }
 
 /*
@@ -194,7 +214,7 @@ void hr0_routine()
   
   Serial.println("Running 0 Hour Routine...");
   delay(100);
-  GPSparse();
+  gpsAOS();
   
 }
 
@@ -209,7 +229,7 @@ void hr12_routine()
   
   Serial.println("Running 12 Hour Routine...");
   delay(100);
-  GPSparse();
+  gpsAOS();
   
 }
 
@@ -226,7 +246,7 @@ void printDateTime(const RtcDateTime& dt)
 
     snprintf_P(datestring, 
             countof(datestring),
-            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
+            PSTR("%02u/%02u/%04u|%02u:%02u:%02u"),
             dt.Month(),
             dt.Day(),
             dt.Year(),
@@ -263,31 +283,31 @@ void FetchHumid()
   Serial.println(humid);
 }
 
-void GPSparse()
+void gpsAOS()
 {
   /*****************************/
   /* GPS NMEA Parse
   /*****************************/
 
   // Displays GPS Data every time a new sentence is correctly encoded
-  while (gpsSS.available() > 0 && if_run_GPS == false)
+  // Loop through this until successful acquisition of signal (AOS) from GPS so we know we have data
+  wait:
+  while (gpsSS.available() > 0)
+  {
     if (gps.encode(gpsSS.read()))
     {
-      if (gps.date.year() == 2000)
+      if (gps.date.year() != 2000)
       {
-        Serial.println("Waiting...");
-      }
-      else
-      {
-        FetchGPSData();
-        if_run_GPS = true;
+        gpsStoreData();
+        return;
       }
     }
+  }
+  goto wait;
 }
 
-void FetchGPSData()
+void gpsStoreData()
 {
-
   tempLat = gps.location.lat();
   tempLon = gps.location.lng();
 
@@ -308,44 +328,31 @@ void FetchGPSData()
   EEPROM.put(eehour, tempHour);
   EEPROM.put(eeminute, tempMin);
 
+}
+
+void printOutEEPROM(){
   // Fetch latlon from EEPROM
+  RtcDateTime now = Rtc.GetDateTime();
+  printDateTime(now);
+  
   EEPROM.get(eelat, plat);
   EEPROM.get(eelng, plng);
 
-  // Fetch timestamp from EEPROM
   EEPROM.get(eemonth, pmonth);
   EEPROM.get(eeday, pday);
   EEPROM.get(eeyear, pyear);
   EEPROM.get(eehour, phour);
   EEPROM.get(eeminute, pminute);
- 
-  Serial.println(F("  ------------------------------"));
-  Serial.println(F("  -------PREVIOUS LOCATION------"));
-  Serial.println(F("  ------------------------------"));
-  Serial.println();
-  Serial.print(F("  Location: "));
- 
-  Serial.print(plat, 6);
-  Serial.print(F(","));
-  Serial.println(plng, 6);
-  Serial.println();
-  Serial.print(F("  Date/Time: "));
-  Serial.print(pmonth);
-  Serial.print(F("/"));  
-  Serial.print(pday);
-  Serial.print(F("/"));
-  Serial.print((pyear));
   
-  Serial.print(F(" "));
+  Serial.print("|");
+  Serial.print(plat, 6);
+  Serial.print("|");
+  Serial.print(plng, 6);
+  Serial.println();
 
-  if ((phour) < 10) Serial.print(F("0"));
-  Serial.print(phour);
-  Serial.print(F(":"));
-  if (pminute < 10) Serial.print(F("0"));
-  Serial.print(pminute);
-  Serial.println();
-  Serial.println();
 }
+
+
 
 
 // Humid accuracy +/- 5%
