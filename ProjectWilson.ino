@@ -65,7 +65,7 @@ SoftwareSerial gpsSS(51, 50); //used for GPS
 /*****************************/
 
 // Instantiate the HUMIDITY & TEMP SENSOR object
-SHT1x th_sensor(dataPin, sckPin);
+SHT1x sht1x(dataPin, sckPin);
 
 // Instantiate the SLEEP object
 Sleep sleep;
@@ -99,6 +99,8 @@ const int eeminute = 16;
 const int ee_extAirTemp = 18;
 const int ee_waterTemp = 22;
 
+const int ee_humidity = 26;
+
 /*****************************/
 // DEFINE VARS
 /*****************************/
@@ -123,6 +125,8 @@ int phour = 0;
 int pminute = 0;
 float p_extAirTemp = 0.00f;
 float p_waterTemp = 0.00f;
+float cTemp = 0.00f;
+float p_humidity = 0.00f;
 
 int tempMonth, tempDay, tempYear, tempHour, tempMin;
 float tempLat = 0.000000f;
@@ -147,6 +151,7 @@ void setup()
   syncRTCTimeToGPS();
   fetchExtAirTemp();
   fetchWaterTemp();
+  fetchHumidity();
   printOutEEPROM();
   
 }
@@ -272,23 +277,7 @@ void printDateTime(const RtcDateTime& dt)
     delay(100);
 }
 
-void FetchHumid()
-{
-  float temp_c;
-  float humid;
-  
-  // Read values from the sensor
-//  humid = th_sensor.readHumidity();
-  // Since the humidity reading requires the temperature we simply
-  // retrieve the reading capture from the readHumidity() call. See the lib.
-  //temp_c = th_sensor.retrieveTemperatureC();
-  
-  // Print data
-  Serial.print("Temperature: ");
-  Serial.print(temp_c);
-  Serial.print(", Humidity: ");
-  Serial.println(humid);
-}
+
 
 void gpsAOS()
 {
@@ -341,6 +330,7 @@ void fetchExtAirTemp(){
   float temp_extAirTemp;
   tempExtAir.requestTemperatures();
   temp_extAirTemp = tempExtAir.getTempCByIndex(0);
+  temp_extAirTemp = convertTemp(temp_extAirTemp);
 
   // Storing to EEPROM
   EEPROM.put(ee_extAirTemp, temp_extAirTemp);
@@ -350,10 +340,23 @@ void fetchWaterTemp(){
   float temp_waterTemp;
   tempWater.requestTemperatures();
   temp_waterTemp = tempWater.getTempCByIndex(0);
+  temp_waterTemp = convertTemp(temp_waterTemp);
 
   // Storing to EEPROM
   EEPROM.put(ee_waterTemp, temp_waterTemp);
 }
+
+void fetchHumidity()
+{
+  float temp_humidity;
+
+  // Read values from the sensor
+  temp_humidity = sht1x.readHumidity();
+
+  // Storing to EEPROM
+  EEPROM.put(ee_humidity, temp_humidity);
+}
+
 
 
 void printOutEEPROM(){
@@ -372,6 +375,7 @@ void printOutEEPROM(){
 
   EEPROM.get(ee_extAirTemp, p_extAirTemp);
   EEPROM.get(ee_waterTemp, p_waterTemp);
+  EEPROM.get(ee_humidity, p_humidity);
   
   Serial.print("|");
   Serial.print(plat, 6);
@@ -381,7 +385,14 @@ void printOutEEPROM(){
   Serial.print(p_extAirTemp, 1);
   Serial.print("|");
   Serial.print(p_waterTemp, 1);
+  Serial.print("|");
+  Serial.print(p_humidity, 1);
   Serial.println();
+}
+
+float convertTemp(float cTemp){
+  float fTemp = (cTemp * 1.8) + 32;
+  return fTemp;
 }
 
 
