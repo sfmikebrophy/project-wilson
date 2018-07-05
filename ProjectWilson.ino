@@ -48,10 +48,10 @@
 // DEFINE PIN ASSIGNMENTS
 /*****************************/
 // HUMIDITY & TEMP SENSOR ports (Model: SHT10)
-//#define dataPin 30
-//#define sckPin 31 //serial clock
+#define dataPin 30
+#define sckPin 31 //serial clock
 
-#define TEMP1_WIRE_BUS 9 //used for dedicated temp sensor 1
+#define TEMP1_WIRE_BUS 9  //used for dedicated temp sensor 1
 #define TEMP2_WIRE_BUS 10 //used for dedicated temp sensor 2
 #define IridiumSerial Serial3
 #define DIAGNOSTICS true // Change this to see diagnostics
@@ -65,7 +65,7 @@ SoftwareSerial gpsSS(51, 50); //used for GPS
 /*****************************/
 
 // Instantiate the HUMIDITY & TEMP SENSOR object
-//SHT1x th_sensor(dataPin, sckPin);
+SHT1x th_sensor(dataPin, sckPin);
 
 // Instantiate the SLEEP object
 Sleep sleep;
@@ -96,6 +96,9 @@ const int eeyear = 12;
 const int eehour = 14;
 const int eeminute = 16;
 
+const int ee_extAirTemp = 18;
+const int ee_waterTemp = 22;
+
 /*****************************/
 // DEFINE VARS
 /*****************************/
@@ -118,6 +121,8 @@ int pday = 0;
 int pyear = 0;
 int phour = 0;
 int pminute = 0;
+float p_extAirTemp = 0.00f;
+float p_waterTemp = 0.00f;
 
 int tempMonth, tempDay, tempYear, tempHour, tempMin;
 float tempLat = 0.000000f;
@@ -140,6 +145,8 @@ void setup()
 
   gpsAOS();
   syncRTCTimeToGPS();
+  fetchExtAirTemp();
+  fetchWaterTemp();
   printOutEEPROM();
   
 }
@@ -330,6 +337,25 @@ void gpsStoreData()
 
 }
 
+void fetchExtAirTemp(){
+  float temp_extAirTemp;
+  tempExtAir.requestTemperatures();
+  temp_extAirTemp = tempExtAir.getTempCByIndex(0);
+
+  // Storing to EEPROM
+  EEPROM.put(ee_extAirTemp, temp_extAirTemp);
+}
+
+void fetchWaterTemp(){
+  float temp_waterTemp;
+  tempWater.requestTemperatures();
+  temp_waterTemp = tempWater.getTempCByIndex(0);
+
+  // Storing to EEPROM
+  EEPROM.put(ee_waterTemp, temp_waterTemp);
+}
+
+
 void printOutEEPROM(){
   // Fetch latlon from EEPROM
   RtcDateTime now = Rtc.GetDateTime();
@@ -343,13 +369,19 @@ void printOutEEPROM(){
   EEPROM.get(eeyear, pyear);
   EEPROM.get(eehour, phour);
   EEPROM.get(eeminute, pminute);
+
+  EEPROM.get(ee_extAirTemp, p_extAirTemp);
+  EEPROM.get(ee_waterTemp, p_waterTemp);
   
   Serial.print("|");
   Serial.print(plat, 6);
   Serial.print("|");
   Serial.print(plng, 6);
+  Serial.print("|");
+  Serial.print(p_extAirTemp, 1);
+  Serial.print("|");
+  Serial.print(p_waterTemp, 1);
   Serial.println();
-
 }
 
 
