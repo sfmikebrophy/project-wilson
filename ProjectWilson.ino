@@ -11,10 +11,10 @@
 /**********************************/
 // TODO
 /**********************************
- * Add temp sensors code
  * Add photoelectric sensor code
- * Add GPS sensor code
  * Add SatModem code
+ * Add Data Package code
+ * Add Fault Tolerance code
  * 
  * 
  * 
@@ -56,7 +56,7 @@
 #define IridiumSerial Serial3
 #define DIAGNOSTICS true // Change this to see diagnostics
 
-SoftwareSerial gpsSS(51, 50); //used for GPS
+SoftwareSerial gpsSS(11, 50); //used for GPS
 //SoftwareSerial nss(10, 9); //used for SatModem
 //IridiumSBD isbd(nss, 8); //used for SatModem
 
@@ -98,9 +98,13 @@ const int eeminute = 16;
 
 const int ee_extAirTemp = 18;
 const int ee_waterTemp = 22;
+const int ee_intAirTemp = 26;
 
-const int ee_humidity = 26;
+const int ee_humidity = 30;
 
+const int ee_barometric = 34;
+
+const int ee_lightIntensity = 38;
 /*****************************/
 // DEFINE VARS
 /*****************************/
@@ -125,8 +129,12 @@ int phour = 0;
 int pminute = 0;
 float p_extAirTemp = 0.00f;
 float p_waterTemp = 0.00f;
+float p_intAirTemp = 0.00f;
 float cTemp = 0.00f;
 float p_humidity = 0.00f;
+float p_barometric = 0.00f;
+int p_lightIntensity = 0;
+int lightSensorPin = A1;    // select the input pin for the photosensor
 
 int tempMonth, tempDay, tempYear, tempHour, tempMin;
 float tempLat = 0.000000f;
@@ -145,15 +153,21 @@ void setup()
   //initiate humidity sensor comm here
   Rtc.Begin(); //initiate serial comm with real-time clock
   barometer.begin();
-  IridiumSerial.begin(19200); //initiate serial comm with SatModem
+  //IridiumSerial.begin(19200); //initiate serial comm with SatModem
 
+  Serial.println("Starting up...");
+  delay(100);
+  
+  //SYSTEMS TESTING
   gpsAOS();
   syncRTCTimeToGPS();
   fetchExtAirTemp();
   fetchWaterTemp();
+  fetchIntAirTemp();
   fetchHumidity();
+  fetchBarometric();
+  fetchLightSensorData();
   printOutEEPROM();
-  
 }
 
 void loop()
@@ -161,14 +175,21 @@ void loop()
   /*****************************/
   /* Sleep Clock Routine
   /*****************************/
-  
- /* RtcDateTime now = Rtc.GetDateTime();
+
+/*
+
+  Serial.println("Going to Sleep...");
+  RtcDateTime now = Rtc.GetDateTime();
   printDateTime(now);
   Serial.println();
   delay(50);
   sleep.pwrDownMode(); //set sleep mode
   sleep.sleepDelay(sleepTime); //sleep for: sleepTime
-  wakeup();*/
+  Serial.println("Waking up...");
+  wakeup();
+
+*/
+  
 }
 
 
@@ -186,25 +207,25 @@ void syncRTCTimeToGPS(){
   
 }
 
-/*
+
 void wakeup()
 {
   /*****************************/
   /* 0 Hour Routine Check
   /*****************************/
   
-  //if(rtc_hour == 0 && rtc_minute >= 0 && rtc_minute <= 30 && if_0hr_routine == false)
-  //{
-  //  hr0_routine();
-  //  if_0hr_routine = true;
-  //  if_12hr_routine = false;
-  //}
+  if(/*rtc_hour == 0 && */rtc_minute >= 0 && rtc_minute <= 30 && if_0hr_routine == false)
+  {
+    hr0_routine();
+    if_0hr_routine = true;
+    if_12hr_routine = false;
+  }
 
   /*****************************/
   /* 12 Hour Routine Check
   /*****************************/
-/*
-  if(rtc_hour == 12 && rtc_minute > 30 && rtc_minute < 0 && if_12hr_routine == false)
+
+  if(/*rtc_hour == 12 && */rtc_minute >= 0 && rtc_minute <= 30 && if_12hr_routine == false)
   {
     hr12_routine();
     if_12hr_routine = true;
@@ -225,8 +246,16 @@ void hr0_routine()
 {
   
   Serial.println("Running 0 Hour Routine...");
+  Serial.println();
   delay(100);
   gpsAOS();
+  syncRTCTimeToGPS();
+  fetchExtAirTemp();
+  fetchWaterTemp();
+  fetchIntAirTemp();
+  fetchHumidity();
+  fetchBarometric();
+  printOutEEPROM();
   
 }
 
@@ -240,8 +269,16 @@ void hr12_routine()
 {
   
   Serial.println("Running 12 Hour Routine...");
+  Serial.println();
   delay(100);
   gpsAOS();
+  syncRTCTimeToGPS();
+  fetchExtAirTemp();
+  fetchWaterTemp();
+  fetchIntAirTemp();
+  fetchHumidity();
+  fetchBarometric();
+  printOutEEPROM();
   
 }
 
@@ -330,7 +367,7 @@ void fetchExtAirTemp(){
   float temp_extAirTemp;
   tempExtAir.requestTemperatures();
   temp_extAirTemp = tempExtAir.getTempCByIndex(0);
-  temp_extAirTemp = convertTemp(temp_extAirTemp);
+  temp_extAirTemp = convertTemp(temp_extAirTemp) - 4.7;
 
   // Storing to EEPROM
   EEPROM.put(ee_extAirTemp, temp_extAirTemp);
@@ -346,6 +383,21 @@ void fetchWaterTemp(){
   EEPROM.put(ee_waterTemp, temp_waterTemp);
 }
 
+void fetchIntAirTemp()
+{
+  float temp_null;
+  float temp_intAirTemp;
+
+  // Read values from sensor
+  barometer.getPT(&temp_null,&temp_intAirTemp);
+  
+  // Convert values into F 
+  temp_intAirTemp = convertTemp(temp_intAirTemp);
+
+  // Storing to EEPROM
+  EEPROM.put(ee_intAirTemp, temp_intAirTemp);
+}
+
 void fetchHumidity()
 {
   float temp_humidity;
@@ -357,7 +409,30 @@ void fetchHumidity()
   EEPROM.put(ee_humidity, temp_humidity);
 }
 
+void fetchBarometric()
+{
+  float temp_pressureKPA;
+  float temp_pressure_inHG;
+  
+  // Read values from the sensor
+  temp_pressureKPA = barometer.getPressure();
 
+  // Convery values into inHG
+  temp_pressure_inHG = temp_pressureKPA * 0.295301;
+
+  // Storing to EEPROM
+  EEPROM.put(ee_barometric, temp_pressure_inHG);
+}
+
+void fetchLightSensorData()
+{
+  // read the value from the photosensor
+  p_lightIntensity = analogRead(lightSensorPin);
+  Serial.print(p_lightIntensity);
+  Serial.println();
+  // Storing to EEPROM
+  EEPROM.put(ee_lightIntensity, p_lightIntensity);
+}
 
 void printOutEEPROM(){
   // Fetch latlon from EEPROM
@@ -376,6 +451,9 @@ void printOutEEPROM(){
   EEPROM.get(ee_extAirTemp, p_extAirTemp);
   EEPROM.get(ee_waterTemp, p_waterTemp);
   EEPROM.get(ee_humidity, p_humidity);
+  EEPROM.get(ee_intAirTemp, p_intAirTemp);
+  EEPROM.get(ee_barometric, p_barometric);
+  EEPROM.get(ee_lightIntensity, p_lightIntensity);
   
   Serial.print("|");
   Serial.print(plat, 6);
@@ -386,7 +464,14 @@ void printOutEEPROM(){
   Serial.print("|");
   Serial.print(p_waterTemp, 1);
   Serial.print("|");
+  Serial.print(p_intAirTemp, 1);
+  Serial.print("|");
   Serial.print(p_humidity, 1);
+  Serial.print("|");
+  Serial.print(p_barometric, 2);
+  Serial.print("|");
+  Serial.print(p_lightIntensity, 1);
+  Serial.println();
   Serial.println();
 }
 
