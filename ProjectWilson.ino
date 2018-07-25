@@ -23,23 +23,16 @@
 // IMPORT ALL NECESSARY LIBRARIES
 /**********************************/
 #include <SHT1x.h>
-#include <RtcDateTime.h>
-#include <RtcDS1307.h>
-#include <RtcDS3231.h>
-#include <RtcTemperature.h>
-#include <RtcUtility.h>
-#include <math.h> 
+#include <RTClib.h> 
 #include <IridiumSBD.h> //SatComm Modem
 #include <SoftwareSerial.h>
 #include <EEPROM.h>
-#include <HardwareSerial.h>
 #include <OneWire.h>
 #include <DallasTemperature.h> //Temp sensors
 #include <Wire.h>
 #include <SPI.h>
 #include <TinyGPS.h> //GPS
 #include <TinyGPS++.h> //GPS
-#include <RtcDS1307.h> //real-time clock
 #include <Adafruit_MPL115A2.h> //Barometric sensor
 #include <avr/wdt.h>            // library for default watchdog functions
 #include <avr/interrupt.h>      // library for interrupts handling
@@ -55,7 +48,7 @@
 
 #define TEMP1_WIRE_BUS 9  //used for dedicated temp sensor 1
 #define TEMP2_WIRE_BUS 10 //used for dedicated temp sensor 2
-#define IridiumSerial Serial3
+#define IridiumSerial Serial
 #define DIAGNOSTICS true // Change this to see diagnostics
 
 SoftwareSerial gpsSS(11, 50); //used for GPS
@@ -69,7 +62,7 @@ SoftwareSerial gpsSS(11, 50); //used for GPS
 // Instantiate the HUMIDITY & TEMP SENSOR object
 SHT1x sht1x(dataPin, sckPin);
 
-RtcDS1307<TwoWire> Rtc(Wire);
+RTC_PCF8523 rtc; //instatiate RTC
 
 OneWire oneWireTemp1(TEMP1_WIRE_BUS);
 OneWire oneWireTemp2(TEMP2_WIRE_BUS);
@@ -144,7 +137,10 @@ int err;
 
 
 void setup()
-{  
+{
+  Serial.println("In setup()...");
+  delay(100);
+  
   //watchdog and sleep functionality
   // use led 13 and put it in low mode
   pinMode(13, OUTPUT);
@@ -160,17 +156,22 @@ void setup()
   tempExtAir.begin();
   tempWater.begin();
   //initiate humidity sensor comm here
-  Rtc.Begin(); //initiate serial comm with real-time clock
+  rtc.begin(); //initiate serial comm with real-time clock
+  Serial.println("Initiating RTC...");
+  delay(100);
   
-  gpsAOS(); //acquire GPS signal and time
-  syncRTCTimeToGPS(); //sync RTC to time from GPS
+  //gpsAOS(); //acquire GPS signal and time
+  //syncRTCTimeToGPS(); //sync RTC to time from GPS
+  rtc.adjust(DateTime(2018, 7, 24, 5, 20, 0)); //for testing only
+  Serial.println("Setting RTC clock...");
   delay(500);
   
   barometer.begin();
   //IridiumSerial.begin(19200); //initiate serial comm with SatModem
 
-  Serial.println("Starting up...");
+  Serial.println("Exiting setup()...");
   delay(100);
+
 }
 
 void loop()
@@ -209,9 +210,7 @@ void syncRTCTimeToGPS(){
   EEPROM.get(eeminute, pminute);
   int pseconds = 0;
 
-  RtcDateTime seedTime = RtcDateTime(pyear, pmonth, pday, phour, pminute, pseconds); //set this to GPS fetched time
-  Rtc.SetDateTime(seedTime);
-  
+  rtc.adjust(DateTime(pyear, pmonth, pday, phour, pminute, pseconds));
 }
 
 
@@ -220,11 +219,11 @@ void wakeup()
   /*****************************/
   /* 0 Hour Routine Check
   /*****************************/
-  RtcDateTime now = Rtc.GetDateTime();
+  DateTime now = rtc.now();
   printDateTime(now);
   Serial.println();
   delay(100);
-  if(rtc_hour == 6 && if_0hr_routine == false)
+  if(now.hour() == 5 && if_0hr_routine == false)
   {
     hr0_routine();
     if_0hr_routine = true;
@@ -235,7 +234,7 @@ void wakeup()
   /* 12 Hour Routine Check
   /*****************************/
 
-  if(rtc_hour == 12 && if_12hr_routine == false)
+  if(now.hour() == 12 && if_12hr_routine == false)
   {
     hr12_routine();
     if_12hr_routine = true;
@@ -301,32 +300,25 @@ void hr12_routine()
 
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
-void printDateTime(const RtcDateTime& dt)
+void printDateTime(const DateTime& dt)
 {
-    char datestring[20];
-
-    snprintf_P(datestring, 
-            countof(datestring),
-            PSTR("%02u/%02u/%04u|%02u:%02u:%02u"),
-            dt.Month(),
-            dt.Day(),
-            dt.Year(),
-            dt.Hour(),
-            dt.Minute(),
-            dt.Second() );
-
-            rtc_year = dt.Year();
-            rtc_month = dt.Month();
-            rtc_day = dt.Day();
-            rtc_hour = dt.Hour();
-            rtc_minute = dt.Minute();
-            rtc_second = dt.Second();
-            
-    Serial.print(datestring);
+    DateTime now = rtc.now();
+    
+    Serial.print(now.year(), DEC);
+    Serial.print('/');
+    Serial.print(now.month(), DEC);
+    Serial.print('/');
+    Serial.print(now.day(), DEC);
+    Serial.print(" (");
+    Serial.print(") ");
+    Serial.print(now.hour(), DEC);
+    Serial.print(':');
+    Serial.print(now.minute(), DEC);
+    Serial.print(':');
+    Serial.print(now.second(), DEC);
+    Serial.println();
     delay(100);
 }
-
-
 
 void gpsAOS()
 {
@@ -447,8 +439,6 @@ void fetchLightSensorData()
 
 void printOutEEPROM(){
   // Fetch latlon from EEPROM
-  RtcDateTime now = Rtc.GetDateTime();
-  printDateTime(now);
   
   EEPROM.get(eelat, plat);
   EEPROM.get(eelng, plng);
